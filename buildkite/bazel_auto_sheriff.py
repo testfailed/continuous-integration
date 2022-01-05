@@ -117,7 +117,7 @@ class BuildInfoAnalyzer(threading.Thread):
         self.main_result = {}
         self.main_result["commit"] = main_build_info["commit"]
         self.main_result["build_number"] = main_build_info["number"]
-        job_infos = filter(lambda x: bool(x), (extract_job_info_by_key(job) for job in main_build_info["jobs"]))
+        job_infos = filter(lambda x: bool(x), (extract_job_info_by_key(job) for job in main_build_info["jobs"] if not ("soft_failed" in job and job["soft_failed"])))
         self.main_result["tasks"] = group_job_info_by_task(job_infos)
         self.main_result["state"] = get_project_state(self.main_result["tasks"])
 
