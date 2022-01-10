@@ -21,12 +21,15 @@
 
 
 import argparse
+import json
 import os
 import pathlib
 import re
 import sys
 import subprocess
+import shutil
 import time
+import urllib.request
 import yaml
 
 import bazelci
@@ -84,22 +87,44 @@ def get_presubmit_yml(module_name, module_version):
     return BCR_REPO_DIR.joinpath("modules/%s/%s/presubmit.yml" % (module_name, module_version))
 
 
+def get_module_dot_bazel(module_name, module_version):
+    return BCR_REPO_DIR.joinpath("modules/%s/%s/MODULE.bazel" % (module_name, module_version))
+
+
+def get_source_json(module_name, module_version):
+    return BCR_REPO_DIR.joinpath("modules/%s/%s/source.json" % (module_name, module_version))
+
+
+def get_patch_file(module_name, module_version, patch):
+    return BCR_REPO_DIR.joinpath("modules/%s/%s/patches/%s" % (module_name, module_version, patch))
+
+
 def get_task_config(module_name, module_version):
     return bazelci.load_config(http_url=None,
                                file_config=get_presubmit_yml(module_name, module_version),
                                allow_imports=False)
 
 
-def add_presubmit_jobs(module_name, module_version, task_configs, pipeline_steps):
+def get_test_module_task_config(module_name, module_version):
+    orig_presubmit = yaml.safe_load(open(get_presubmit_yml(module_name, module_version), "r"))
+    if "bcr_test_module" in orig_presubmit:
+        config = orig_presubmit["bcr_test_module"]
+        bazelci.expand_task_config(config)
+        return config
+    return {}
+
+
+def add_presubmit_jobs(module_name, module_version, task_configs, pipeline_steps, is_test_module=False):
     for task_name, task_config in task_configs.items():
         platform_name = bazelci.get_platform_for_task(task_name, task_config)
-        label = bazelci.PLATFORMS[platform_name]["emoji-name"] + " {0}@{1}".format(
-            module_name, module_version
+        label = bazelci.PLATFORMS[platform_name]["emoji-name"] + " {0}@{1} {2}".format(
+            module_name, module_version, task_config["name"] if "name" in task_config else ""
         )
         command = (
-            '%s bcr_presubmit.py runner --module_name="%s" --module_version="%s" --task=%s'
+            '%s bcr_presubmit.py %s --module_name="%s" --module_version="%s" --task=%s'
             % (
                 bazelci.PLATFORMS[platform_name]["python"],
+                "test_module_runner" if is_test_module else "runner",
                 module_name,
                 module_version,
                 task_name,
@@ -122,11 +147,16 @@ def scratch_file(root, relative_path, lines=None):
     return abspath
 
 
-def create_test_repo(module_name, module_version, task):
+def get_root_dir(module_name, module_version, task):
+    # TODO(pcloudy): We use the "downstream root" as the repo root, find a better root path for BCR presubmit.
     configs = get_task_config(module_name, module_version)
     platform = bazelci.get_platform_for_task(task, configs["tasks"][task])
-    # TODO(pcloudy): We use the "downstream root" as the repo root, find a better root path for BCR presubmit.
-    root = pathlib.Path(bazelci.downstream_projects_root(platform))
+    return pathlib.Path(bazelci.downstream_projects_root(platform))
+
+
+def create_simple_repo(module_name, module_version, task):
+    """Create a simple Bazel module repo which depends on the target module."""
+    root = get_root_dir(module_name, module_version, task)
     scratch_file(root, "WORKSPACE")
     scratch_file(root, "BUILD")
     # TODO(pcloudy): Should we test this module as the root module? Maybe we do if we support dev dependency.
@@ -140,13 +170,63 @@ def create_test_repo(module_name, module_version, task):
     return root
 
 
-def run_test(repo_location, module_name, module_version, task):
+def download(url, file):
+    with urllib.request.urlopen(url) as response:
+        with open(file, "wb") as f:
+            f.write(response.read())
+
+
+def load_source_json(module_name, module_version):
+    source_json = get_source_json(module_name, module_version)
+    with open(source_json, "r") as json_file:
+        return json.load(json_file)
+
+
+def apply_patch(work_dir, patch_strip, patch_file):
+    subprocess.run(
+        ["patch", "-p" + patch_strip, "-i", patch_file], shell=False, check=True, env=os.environ, cwd=work_dir
+    )
+
+
+def prepare_test_module_repo(module_name, module_version, task):
+    """Prepare the test module repo and the presubmit yml file it should use"""
+    root = get_root_dir(module_name, module_version, task)
+    source = load_source_json(module_name, module_version)
+
+    # Download and unpack archive to ./output
+    archive_url = source["url"]
+    archive_file = root.joinpath(archive_url.split("/")[-1])
+    output_dir = root.joinpath("output")
+    download(archive_url, archive_file)
+    shutil.unpack_archive(archive_file, output_dir)
+
+    # Apply patch files if there are any
+    source_root = output_dir.joinpath(source["strip_prefix"] if "strip_prefix" in source else "")
+    if "patches" in source:
+        for patch_name in source["patches"]:
+            patch_file = get_patch_file(module_name, module_version, patch_name)
+            apply_patch(source_root, source["patch_strip"], patch_file)
+
+    # Make sure the checked-in MODULE.bazel file is used.
+    shutil.copy(get_module_dot_bazel(module_name, module_version), source_root.joinpath("MODULE.bazel"))
+
+    # Genreate the presubmit.yml file for the test module, it should be the content under "bcr_test_module"
+    orig_presubmit = yaml.safe_load(open(get_presubmit_yml(module_name, module_version), "r"))
+    test_module_presubmit = root.joinpath("presubmit.yml")
+    with open(test_module_presubmit, "w") as f:
+        yaml.dump(orig_presubmit["bcr_test_module"], f)
+
+    test_module_dir = orig_presubmit["bcr_test_module"]["module_path"]
+    return source_root.joinpath(test_module_dir), test_module_presubmit
+
+
+def run_test(repo_location, task_config_file, task):
     try:
         return bazelci.main(
             [
                 "runner",
                 "--task=" + task,
-                "--file_config=%s" % get_presubmit_yml(module_name, module_version),
+                "--file_config=%s" % task_config_file,
                 "--repo_location=%s" % repo_location,
             ]
         )
@@ -170,6 +250,11 @@ def main(argv=None):
     runner.add_argument("--module_version", type=str)
     runner.add_argument("--task", type=str)
 
+    test_module_runner = subparsers.add_parser("test_module_runner")
+    test_module_runner.add_argument("--module_name", type=str)
+    test_module_runner.add_argument("--module_version", type=str)
+    test_module_runner.add_argument("--task", type=str)
+
     args = parser.parse_args(argv)
     if args.subparsers_name == "bcr_presubmit":
         modules = get_target_modules()
@@ -178,11 +263,17 @@ def main(argv=None):
         pipeline_steps = []
         for module_name, module_version in modules:
             configs = get_task_config(module_name, module_version)
-            add_presubmit_jobs(module_name, module_version, configs.get("tasks", None), pipeline_steps)
+            add_presubmit_jobs(module_name, module_version, configs.get("tasks", {}), pipeline_steps)
+            configs = get_test_module_task_config(module_name, module_version)
+            add_presubmit_jobs(module_name, module_version, configs.get("tasks", {}), pipeline_steps, is_test_module=True)
         print(yaml.dump({"steps": pipeline_steps}))
     elif args.subparsers_name == "runner":
-        repo_location = create_test_repo(args.module_name, args.module_version, args.task)
-        return run_test(repo_location, args.module_name, args.module_version, args.task)
+        repo_location = create_simple_repo(args.module_name, args.module_version, args.task)
+        config_file = get_presubmit_yml(args.module_name, args.module_version)
+        return run_test(repo_location, config_file, args.task)
+    elif args.subparsers_name == "test_module_runner":
+        repo_location, config_file = prepare_test_module_repo(args.module_name, args.module_version, args.task)
+        return run_test(repo_location, config_file, args.task)
     else:
         parser.print_help()
         return 2
