@@ -147,9 +147,9 @@ def scratch_file(root, relative_path, lines=None):
     return abspath
 
 
-def get_root_dir(module_name, module_version, task):
+def get_root_dir(module_name, module_version, task, is_test_module=False):
     # TODO(pcloudy): We use the "downstream root" as the repo root, find a better root path for BCR presubmit.
-    configs = get_task_config(module_name, module_version)
+    configs = get_test_module_task_config(module_name, module_version) if is_test_module else get_task_config(module_name, module_version)
     platform = bazelci.get_platform_for_task(task, configs["tasks"][task])
     return pathlib.Path(bazelci.downstream_projects_root(platform))
 
@@ -190,7 +190,7 @@ def apply_patch(work_dir, patch_strip, patch_file):
 
 def prepare_test_module_repo(module_name, module_version, task):
     """Prepare the test module repo and the presubmit yml file it should use"""
-    root = get_root_dir(module_name, module_version, task)
+    root = get_root_dir(module_name, module_version, task, is_test_module = True)
     source = load_source_json(module_name, module_version)
 
     # Download and unpack archive to ./output
