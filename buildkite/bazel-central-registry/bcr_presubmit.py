@@ -134,12 +134,12 @@ def add_presubmit_jobs(module_name, module_version, task_configs, pipeline_steps
         pipeline_steps.append(bazelci.create_step(label, commands, platform_name))
 
 
-def scratch_file(root, relative_path, lines=None):
+def scratch_file(root, relative_path, lines=None, mode="w"):
     """Creates a file under the root directory"""
     if not relative_path:
         return None
     abspath = pathlib.Path(root).joinpath(relative_path)
-    with open(abspath, 'w') as f:
+    with open(abspath, mode) as f:
         if lines:
             for l in lines:
                 f.write(l)
@@ -216,8 +216,14 @@ def prepare_test_module_repo(module_name, module_version, task):
     with open(test_module_presubmit, "w") as f:
         yaml.dump(orig_presubmit["bcr_test_module"], f)
 
-    test_module_dir = orig_presubmit["bcr_test_module"]["module_path"]
-    return source_root.joinpath(test_module_dir), test_module_presubmit
+    # Write the .bazelrc file
+    test_module_root = source_root.joinpath(orig_presubmit["bcr_test_module"]["module_path"])
+    scratch_file(test_module_root, ".bazelrc", [
+        "build --experimental_enable_bzlmod",
+        "build --registry=%s" % BCR_REPO_DIR.as_uri(),
+    ], mode="a")
+
+    return test_module_root, test_module_presubmit
 
 
 def run_test(repo_location, task_config_file, task):
