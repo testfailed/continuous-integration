@@ -198,7 +198,7 @@ def prepare_test_module_repo(module_name, module_version, task):
     archive_file = root.joinpath(archive_url.split("/")[-1])
     output_dir = root.joinpath("output")
     download(archive_url, archive_file)
-    shutil.unpack_archive(archive_file, output_dir)
+    shutil.unpack_archive(str(archive_file), output_dir)
 
     # Apply patch files if there are any
     source_root = output_dir.joinpath(source["strip_prefix"] if "strip_prefix" in source else "")
@@ -216,7 +216,7 @@ def prepare_test_module_repo(module_name, module_version, task):
     with open(test_module_presubmit, "w") as f:
         yaml.dump(orig_presubmit["bcr_test_module"], f)
 
-    # Write the .bazelrc file
+    # Write necessary options to the .bazelrc file
     test_module_root = source_root.joinpath(orig_presubmit["bcr_test_module"]["module_path"])
     scratch_file(test_module_root, ".bazelrc", [
         "build --experimental_enable_bzlmod",
