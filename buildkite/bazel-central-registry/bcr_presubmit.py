@@ -204,7 +204,7 @@ def prepare_test_module_repo(module_name, module_version, task):
     archive_url = source["url"]
     archive_file = root.joinpath(archive_url.split("/")[-1])
     output_dir = root.joinpath("output")
-    bazelci.eprint(":hammer_and_pick: Download and unpack %s\n" % archive_url)
+    bazelci.eprint("* Download and unpack %s\n" % archive_url)
     download(archive_url, archive_file)
     shutil.unpack_archive(str(archive_file), output_dir)
     bazelci.eprint("Source unpacked to %s\n" % output_dir)
@@ -212,7 +212,7 @@ def prepare_test_module_repo(module_name, module_version, task):
     # Apply patch files if there are any
     source_root = output_dir.joinpath(source["strip_prefix"] if "strip_prefix" in source else "")
     if "patches" in source:
-        bazelci.eprint(":hammer_and_pick: Applying patch files\n")
+        bazelci.eprint("* Applying patch files\n")
         for patch_name in source["patches"]:
             bazelci.eprint("Applying %s\n" % patch_name)
             patch_file = get_patch_file(module_name, module_version, patch_name)
@@ -220,7 +220,7 @@ def prepare_test_module_repo(module_name, module_version, task):
 
     # Make sure the checked-in MODULE.bazel file is used.
     checked_in_module_dot_bazel = get_module_dot_bazel(module_name, module_version)
-    bazelci.eprint(":hammer_and_pick: Copy checked-in MODULE.bazel file to source root:\n%s\n" % read(checked_in_module_dot_bazel))
+    bazelci.eprint("* Copy checked-in MODULE.bazel file to source root:\n%s\n" % read(checked_in_module_dot_bazel))
     shutil.copy(checked_in_module_dot_bazel, source_root.joinpath("MODULE.bazel"))
 
     # Genreate the presubmit.yml file for the test module, it should be the content under "bcr_test_module"
@@ -228,7 +228,7 @@ def prepare_test_module_repo(module_name, module_version, task):
     test_module_presubmit = root.joinpath("presubmit.yml")
     with open(test_module_presubmit, "w") as f:
         yaml.dump(orig_presubmit["bcr_test_module"], f)
-    bazelci.eprint(":hammer_and_pick: Generate test module presubmit.yml:\n%s\n" % read(test_module_presubmit))
+    bazelci.eprint("* Generate test module presubmit.yml:\n%s\n" % read(test_module_presubmit))
 
     # Write necessary options to the .bazelrc file
     test_module_root = source_root.joinpath(orig_presubmit["bcr_test_module"]["module_path"])
@@ -236,9 +236,9 @@ def prepare_test_module_repo(module_name, module_version, task):
         "build --experimental_enable_bzlmod",
         "build --registry=%s" % BCR_REPO_DIR.as_uri(),
     ], mode="a")
-    bazelci.eprint(":hammer_and_pick: Append Bzlmod flags to .bazelrc file:\n%s\n" % read(test_module_root.joinpath(".bazelrc")))
+    bazelci.eprint("* Append Bzlmod flags to .bazelrc file:\n%s\n" % read(test_module_root.joinpath(".bazelrc")))
 
-    bazelci.eprint(":hammer_and_pick: Test module ready: %s\n" % test_module_root)
+    bazelci.eprint("* Test module ready: %s\n" % test_module_root)
     return test_module_root, test_module_presubmit
 
 
