@@ -207,6 +207,7 @@ def prepare_test_module_repo(module_name, module_version, task):
     bazelci.eprint(":hammer_and_pick: Download and unpack %s\n" % archive_url)
     download(archive_url, archive_file)
     shutil.unpack_archive(str(archive_file), output_dir)
+    bazelci.eprint("Source unpacked to %s\n" % output_dir)
 
     # Apply patch files if there are any
     source_root = output_dir.joinpath(source["strip_prefix"] if "strip_prefix" in source else "")
@@ -237,6 +238,7 @@ def prepare_test_module_repo(module_name, module_version, task):
     ], mode="a")
     bazelci.eprint(":hammer_and_pick: Append Bzlmod flags to .bazelrc file:\n%s\n" % read(test_module_root.joinpath(".bazelrc")))
 
+    bazelci.eprint(":hammer_and_pick: Test module ready: %s\n" % test_module_root)
     return test_module_root, test_module_presubmit
 
 
