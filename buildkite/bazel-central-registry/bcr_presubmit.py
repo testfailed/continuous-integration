@@ -214,13 +214,13 @@ def prepare_test_module_repo(module_name, module_version, task):
     if "patches" in source:
         bazelci.eprint("* Applying patch files")
         for patch_name in source["patches"]:
-            bazelci.eprint("\nApplying %s" % patch_name)
+            bazelci.eprint("\nApplying %s:" % patch_name)
             patch_file = get_patch_file(module_name, module_version, patch_name)
             apply_patch(source_root, source["patch_strip"], patch_file)
 
     # Make sure the checked-in MODULE.bazel file is used.
     checked_in_module_dot_bazel = get_module_dot_bazel(module_name, module_version)
-    bazelci.eprint("* Copy checked-in MODULE.bazel file to source root:\n%s\n" % read(checked_in_module_dot_bazel))
+    bazelci.eprint("\n* Copy checked-in MODULE.bazel file to source root:\n%s\n" % read(checked_in_module_dot_bazel))
     shutil.copy(checked_in_module_dot_bazel, source_root.joinpath("MODULE.bazel"))
 
     # Genreate the presubmit.yml file for the test module, it should be the content under "bcr_test_module"
