@@ -212,9 +212,9 @@ def prepare_test_module_repo(module_name, module_version, task):
     # Apply patch files if there are any
     source_root = output_dir.joinpath(source["strip_prefix"] if "strip_prefix" in source else "")
     if "patches" in source:
-        bazelci.eprint("* Applying patch files\n")
+        bazelci.eprint("* Applying patch files")
         for patch_name in source["patches"]:
-            bazelci.eprint("Applying %s\n" % patch_name)
+            bazelci.eprint("\nApplying %s" % patch_name)
             patch_file = get_patch_file(module_name, module_version, patch_name)
             apply_patch(source_root, source["patch_strip"], patch_file)
 
