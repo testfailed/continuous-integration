@@ -176,6 +176,11 @@ def download(url, file):
             f.write(response.read())
 
 
+def read(path):
+    with open(path, "r") as file:
+        return file.read()
+
+
 def load_source_json(module_name, module_version):
     source_json = get_source_json(module_name, module_version)
     with open(source_json, "r") as json_file:
@@ -183,6 +188,7 @@ def load_source_json(module_name, module_version):
 
 
 def apply_patch(work_dir, patch_strip, patch_file):
+    # Requries patch to be installed, this is true for all Bazel CI VMs, including Windows VMs.
     subprocess.run(
         ["patch", "-p" + patch_strip, "-i", patch_file], shell=False, check=True, env=os.environ, cwd=work_dir
     )
@@ -190,13 +196,15 @@ def apply_patch(work_dir, patch_strip, patch_file):
 
 def prepare_test_module_repo(module_name, module_version, task):
     """Prepare the test module repo and the presubmit yml file it should use"""
+    bazelci.print_collapsed_group(":information_source: Prepare test module repo")
     root = get_root_dir(module_name, module_version, task, is_test_module = True)
     source = load_source_json(module_name, module_version)
 
-    # Download and unpack archive to ./output
+    # Download and unpack the source archive to ./output
     archive_url = source["url"]
     archive_file = root.joinpath(archive_url.split("/")[-1])
     output_dir = root.joinpath("output")
+    bazelci.eprint("Download and unpack %s\n" % archive_url)
     download(archive_url, archive_file)
     shutil.unpack_archive(str(archive_file), output_dir)
 
@@ -204,17 +212,21 @@ def prepare_test_module_repo(module_name, module_version, task):
     source_root = output_dir.joinpath(source["strip_prefix"] if "strip_prefix" in source else "")
     if "patches" in source:
         for patch_name in source["patches"]:
+            bazelci.eprint("Applying patch file: %s\n" % patch_name)
             patch_file = get_patch_file(module_name, module_version, patch_name)
             apply_patch(source_root, source["patch_strip"], patch_file)
 
     # Make sure the checked-in MODULE.bazel file is used.
-    shutil.copy(get_module_dot_bazel(module_name, module_version), source_root.joinpath("MODULE.bazel"))
+    checked_in_module_dot_bazel = get_module_dot_bazel(module_name, module_version)
+    bazelci.eprint("Copy checked-in MODULE.bazel file to source root:\n%s\n" % read(checked_in_module_dot_bazel))
+    shutil.copy(checked_in_module_dot_bazel, source_root.joinpath("MODULE.bazel"))
 
     # Genreate the presubmit.yml file for the test module, it should be the content under "bcr_test_module"
     orig_presubmit = yaml.safe_load(open(get_presubmit_yml(module_name, module_version), "r"))
     test_module_presubmit = root.joinpath("presubmit.yml")
     with open(test_module_presubmit, "w") as f:
         yaml.dump(orig_presubmit["bcr_test_module"], f)
+    bazelci.eprint("Generate test module presubmit.yml:\n%s\n" % read(test_module_presubmit))
 
     # Write necessary options to the .bazelrc file
     test_module_root = source_root.joinpath(orig_presubmit["bcr_test_module"]["module_path"])
@@ -222,6 +234,7 @@ def prepare_test_module_repo(module_name, module_version, task):
         "build --experimental_enable_bzlmod",
         "build --registry=%s" % BCR_REPO_DIR.as_uri(),
     ], mode="a")
+    bazelci.eprint("Append Bzlmod flags to .bazelrc file:\n%s\n" % read(test_module_root.joinpath(".bazelrc")))
 
     return test_module_root, test_module_presubmit
 
